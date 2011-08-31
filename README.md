@@ -8,6 +8,8 @@ Module dependencies are all installed in to the root modules directory, in order
 
 # Usage
 
+Make sure to add nji.exe directory in the PATH environment variable.
+
 ## Installing Packages
 
     nji install <pkg> []<pkg>
@@ -24,8 +26,13 @@ Example:
 
     nji deps
 
+# Requirements
+
+    * .NET 3.5 Framework
+
 # Nuget
 
 You can also nji from nuget.
 
     Install-Package nji
+
