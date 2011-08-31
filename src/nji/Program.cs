@@ -16,7 +16,7 @@ namespace nji
 
         static Program()
         {
-            ModulesDir = "./node_modules";
+            ModulesDir = ".\\node_modules";
             TempDir = Path.Combine(ModulesDir, ".tmp");
         }
 
@@ -142,13 +142,47 @@ namespace nji
 
             var workingDir = Environment.CurrentDirectory;
             Environment.CurrentDirectory = tempPkgDir;
-            var x = Tar.Extract(Path.Combine(workingDir, tmpFilePath));
-            Environment.CurrentDirectory = workingDir;
 
-            Directory.Move(Path.Combine(tempPkgDir, "package"), destPath);
+            Tar.Extract(Path.Combine(workingDir, tmpFilePath));
+            Environment.CurrentDirectory = workingDir;
+            // getting error when doing move, so copy recursively instead
+            CopyDirectory(Path.Combine(tempPkgDir, "package"), destPath, true);
             return destPath;
         }
 
+        private static bool CopyDirectory(string SourcePath, string DestinationPath, bool overwriteexisting)
+        {
+            bool ret = false;
+            try
+            {
+                SourcePath = SourcePath.EndsWith(@"\") ? SourcePath : SourcePath + @"\";
+                DestinationPath = DestinationPath.EndsWith(@"\") ? DestinationPath : DestinationPath + @"\";
+
+                if (Directory.Exists(SourcePath))
+                {
+                    if (Directory.Exists(DestinationPath) == false)
+                        Directory.CreateDirectory(DestinationPath);
+
+                    foreach (string fls in Directory.GetFiles(SourcePath))
+                    {
+                        FileInfo flinfo = new FileInfo(fls);
+                        flinfo.CopyTo(DestinationPath + flinfo.Name, overwriteexisting);
+                    }
+                    foreach (string drs in Directory.GetDirectories(SourcePath))
+                    {
+                        DirectoryInfo drinfo = new DirectoryInfo(drs);
+                        if (CopyDirectory(drs, DestinationPath + drinfo.Name, overwriteexisting) == false)
+                            ret = false;
+                    }
+                }
+                ret = true;
+            }
+            catch (Exception ex)
+            {
+                ret = false;
+            }
+            return ret;
+        }
         private static IDictionary<string, object> GetMetaDataForPkg(string pkg)
         {
             var url = string.Format("http://registry.npmjs.org/{0}/latest", pkg);
