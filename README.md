@@ -32,7 +32,7 @@ Example:
 
 # Nuget
 
-You can also nji from nuget.
+You can also download nji from nuget.
 
     Install-Package nji
 
