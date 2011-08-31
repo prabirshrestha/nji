@@ -28,7 +28,7 @@ Example:
 
 # Requirements
 
-    * .NET 3.5 Framework
+* .NET 3.5 Framework
 
 # Nuget
 
