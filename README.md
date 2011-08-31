@@ -12,7 +12,7 @@ Make sure to add nji.exe directory in the PATH environment variable.
 
 ## Installing Packages
 
-    nji install <pkg> []<pkg>
+    nji install <pkg> [<pkg>]
 
 Example:
 
