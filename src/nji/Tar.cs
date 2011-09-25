@@ -718,6 +718,7 @@ namespace Ionic
                                 throw new Exception(String.Format("unexpected name for type 'L' (expected '././@LongLink', got '{0}')", name));
                         }
                         // for GNU long names, we extract the long name info into a memory stream
+                        if (output != null) output.Close();
                         output = new MemoryStream();
                         continue;
                     }
@@ -751,6 +752,7 @@ namespace Ionic
                                     if (!Directory.Exists(p))
                                         Directory.CreateDirectory(p);
                                 }
+                                if (output != null) output.Close();
                                 output = _internal_GetExtractOutputStream(name);
                                 break;
 
@@ -781,6 +783,7 @@ namespace Ionic
                 }
             }
 
+            if (output != null) output.Close();
             return entryList;
         }
 
