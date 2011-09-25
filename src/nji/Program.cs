@@ -1,5 +1,4 @@
-﻿
-namespace nji
+﻿namespace nji
 {
     using System;
     using System.Collections.Generic;
@@ -145,44 +144,10 @@ namespace nji
 
             Tar.Extract(Path.Combine(workingDir, tmpFilePath));
             Environment.CurrentDirectory = workingDir;
-            // getting error when doing move, so copy recursively instead
-            CopyDirectory(Path.Combine(tempPkgDir, "package"), destPath, true);
+            Directory.Move(Directory.GetDirectories(tempPkgDir)[0], destPath);
             return destPath;
         }
 
-        private static bool CopyDirectory(string SourcePath, string DestinationPath, bool overwriteexisting)
-        {
-            bool ret = false;
-            try
-            {
-                SourcePath = SourcePath.EndsWith(@"\") ? SourcePath : SourcePath + @"\";
-                DestinationPath = DestinationPath.EndsWith(@"\") ? DestinationPath : DestinationPath + @"\";
-
-                if (Directory.Exists(SourcePath))
-                {
-                    if (Directory.Exists(DestinationPath) == false)
-                        Directory.CreateDirectory(DestinationPath);
-
-                    foreach (string fls in Directory.GetFiles(SourcePath))
-                    {
-                        FileInfo flinfo = new FileInfo(fls);
-                        flinfo.CopyTo(DestinationPath + flinfo.Name, overwriteexisting);
-                    }
-                    foreach (string drs in Directory.GetDirectories(SourcePath))
-                    {
-                        DirectoryInfo drinfo = new DirectoryInfo(drs);
-                        if (CopyDirectory(drs, DestinationPath + drinfo.Name, overwriteexisting) == false)
-                            ret = false;
-                    }
-                }
-                ret = true;
-            }
-            catch (Exception ex)
-            {
-                ret = false;
-            }
-            return ret;
-        }
         private static IDictionary<string, object> GetMetaDataForPkg(string pkg)
         {
             var url = string.Format("http://registry.npmjs.org/{0}/latest", pkg);
@@ -191,7 +156,7 @@ namespace nji
             {
                 response = new WebClient().DownloadString(url);
             }
-            catch (Exception ex)
+            catch
             {
                 Console.WriteLine("No module named {0} in package registry! Aborting!", pkg);
                 Environment.Exit(-1);
@@ -211,16 +176,6 @@ Example:
  nji install express socket.io mongolian underscore");
 
             Environment.Exit(0);
-        }
-
-        public static void CopyStream(Stream input, Stream output)
-        {
-            byte[] buffer = new byte[32768];
-            int read;
-            while ((read = input.Read(buffer, 0, buffer.Length)) > 0)
-            {
-                output.Write(buffer, 0, read);
-            }
         }
     }
 }
