@@ -7,6 +7,7 @@
     using System.Net;
     using Ionic;
     using SimpleJson;
+    using System.Text.RegularExpressions;
 
     class Program
     {
@@ -30,7 +31,12 @@
                     Usage();
                 foreach (var i in args.Skip(1))
                 {
-                    Install(i);
+                    // handle both "package@1.2" and just "package" (implies "package@latest")
+                    string package, version;
+                    var split = i.Split(new[] { '@' }, 2);
+                    package = split[0];
+                    version = split.Length > 1 ? split[1] : "latest";
+                    Install(package, version);
                 }
             }
             else if (args[0] == "deps")
@@ -55,10 +61,10 @@
             var pkgs = GetInstalled();
             foreach (var pkg in pkgs)
             {
-                var meta = GetMetaDataForPkg((string)pkg["name"]);
+                var meta = GetMetaDataForPkg((string)pkg["name"], "latest");
                 if (meta["version"].ToString() != pkg["version"].ToString())
                 {
-                    Install((string)pkg["name"]);
+                    Install((string)pkg["name"], "latest");
                 }
             }
         }
@@ -90,10 +96,10 @@
                 Directory.Delete(tempDir, true);
         }
 
-        private static void Install(string pkg)
+        private static void Install(string pkg, string version)
         {
             // Installs pkg(s) into ./node_modules
-            var meta = GetMetaDataForPkg(pkg);
+            var meta = GetMetaDataForPkg(pkg, version);
             var destPath = SaveAndExtractPackage(meta);
             InstallDependencies(destPath);
         }
@@ -112,7 +118,7 @@
             {
                 foreach (var dep in (IDictionary<string, object>)metaData["dependencies"])
                 {
-                    Install(dep.Key);
+                    Install(dep.Key, dep.Value as string);
                 }
             }
         }
@@ -148,9 +154,15 @@
             return destPath;
         }
 
-        private static IDictionary<string, object> GetMetaDataForPkg(string pkg)
+        private static IDictionary<string, object> GetMetaDataForPkg(string pkg, string version)
         {
-            var url = string.Format("http://registry.npmjs.org/{0}/latest", pkg);
+            version = version ?? "latest";
+            if (!Regex.Match(version, @"^[\.\da-zA-Z]*$").Success)
+            {
+                Console.WriteLine("Not smart enough to understand version '{0}', so using 'latest' instead for package '{1}'.", version, pkg);
+                version = "latest";
+            }
+            var url = string.Format("http://registry.npmjs.org/{0}/{1}", pkg, version);
             string response = null;
             try
             {
