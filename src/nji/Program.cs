@@ -1,6 +1,7 @@
 ﻿namespace nji
 {
     using System;
+    using System.IO;
     using System.Linq;
     using System.Threading;
 
@@ -9,6 +10,7 @@
         static void Main(string[] args)
         {
             var nji = new NjiApi();
+
             nji.CleanTempDir();
 
             var cst = new CancellationTokenSource();
@@ -31,6 +33,19 @@
                 else
                     Usage();
             }
+            catch (AggregateException ex)
+            {
+                if (ex.InnerException is NjiException || ex.InnerException is IOException)
+                {
+                    Console.WriteLine();
+                    Console.WriteLine("Error: " + ex.InnerException.Message);
+                    Environment.Exit(1);
+                }
+                else
+                {
+                    throw;
+                }
+            }
             finally
             {
                 cst.Dispose();
@@ -52,7 +67,7 @@ Example:
   nji install http://registry.npmjs.org/connect/-/connect-1.7.1.tgz
   nji update");
 
-            Environment.Exit(1);
+            Environment.Exit(2);
         }
     }
 }

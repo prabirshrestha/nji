@@ -2,15 +2,15 @@
 namespace nji
 {
     using System;
+    using System.Collections.Generic;
     using System.IO;
+    using System.Linq;
     using System.Net;
+    using System.Text.RegularExpressions;
     using System.Threading;
     using System.Threading.Tasks;
     using FluentHttp;
     using SimpleJson;
-    using System.Collections.Generic;
-    using System.Text.RegularExpressions;
-    using System.Linq;
 
     public class NjiApi
     {
@@ -21,6 +21,7 @@ namespace nji
         public TextWriter Out { get; set; }
         public int Verbose { get; set; }
 
+        [System.ComponentModel.EditorBrowsable(System.ComponentModel.EditorBrowsableState.Never)]
         public Func<string, HttpWebRequestWrapper> HttpWebRequestFactory { get; set; }
 
         public NjiApi()
@@ -60,9 +61,7 @@ namespace nji
                 var packageJson = Path.Combine(WorkingDirectory, "package.json");
                 dynamic metadata = null;
                 if (File.Exists(packageJson))
-                {
                     metadata = SimpleJson.DeserializeObject(File.ReadAllText(packageJson));
-                }
 
                 if (Verbose > 0 && metadata == null)
                     Out.WriteLine("Nothing to install");
@@ -84,7 +83,7 @@ namespace nji
                     .ContinueWith(downloadTask =>
                     {
                         if (downloadTask.IsFaulted)
-                            throw downloadTask.Exception;
+                            throw downloadTask.Exception.InnerException;
 
                         var downloadFilePath = downloadTask.Result;
                         return Extract(downloadFilePath, destinationDir);
@@ -92,7 +91,7 @@ namespace nji
                     .ContinueWith(extractTask =>
                     {
                         if (extractTask.IsFaulted)
-                            throw extractTask.Exception;
+                            throw extractTask.Exception.InnerException;
 
                         var packageExtractedDir = Directory.GetDirectories(destinationDir)[0];
                         string packageJson = Path.Combine(packageExtractedDir, "package.json");
@@ -102,19 +101,18 @@ namespace nji
                         {
                             metadata = SimpleJson.DeserializeObject(File.ReadAllText(packageJson));
                             if (metadata.ContainsKey("name"))
-                            {
                                 packageName = metadata.name;
-                            }
                         }
 
                         var moduleFinalDir = Path.Combine(WorkingDirectory, "node_modules", packageName);
+
                         CleanDir(moduleFinalDir);
                         Directory.Move(Directory.GetDirectories(destinationDir)[0], moduleFinalDir);
 
                         if (Verbose > 0)
                             Out.WriteLine("Successfully installed {0} in {1}", packageName, moduleFinalDir);
 
-                        return (Task)InstallDependencies(metadata, cancellationToken, installDependencies);
+                        return InstallDependencies((object)metadata, cancellationToken, installDependencies);
                     }).Unwrap();
 
                 return task;
@@ -134,11 +132,28 @@ namespace nji
                     .ContinueWith(metadataTask =>
                     {
                         if (metadataTask.IsFaulted)
-                        {
-                            throw metadataTask.Exception;
-                        }
+                            throw metadataTask.Exception.InnerException;
 
                         dynamic metadata = metadataTask.Result;
+
+                        // don't download if package is already the latest version.
+                        string packageJson = Path.Combine(WorkingDirectory, "node_modules", package, "package.json");
+                        if (File.Exists(Path.Combine(packageJson)))
+                        {
+                            dynamic localMetadata = SimpleJson.DeserializeObject(File.ReadAllText(packageJson));
+                            if (localMetadata.ContainsKey("name") && localMetadata.ContainsKey("version"))
+                            {
+                                if (metadata.name == localMetadata.name && metadata.version == localMetadata.version)
+                                {
+                                    if (Verbose > 0)
+                                        Out.WriteLine("Skipping {0}. Already on latest version", package);
+                                    return NoopTask();
+                                    // should it check dependencies too?
+                                    // return InstallDependencies((object)metadata, cancellationToken, installDependencies);
+                                }
+                            }
+                        }
+
                         string tarballUrl = metadata.dist.tarball;
 
                         // recursively reuse InstallAsync :) InstallAsync accepts url
@@ -159,22 +174,18 @@ namespace nji
         {
             if (packages == null || packages.Count() == 0)
             {
-                throw new ArgumentNullException("packages");
+                return InstallAsync(string.Empty, cancellationToken, installDependencies);
             }
-
-            Task task = null;
-            foreach (var package in packages)
+            else
             {
-                if (task == null)
-                    task = InstallAsync(package, cancellationToken, installDependencies);
-                else
-                    task = task.ContinueWith(t2 =>
-                    {
-                        return InstallAsync(package, cancellationToken, installDependencies);
-                    }).Unwrap();
-            }
+                return ForEachContinueWith(packages, (package, task) =>
+                {
+                    if (task != null && task.IsFaulted)
+                        throw task.Exception.InnerException;
 
-            return task;
+                    return InstallAsync(package, cancellationToken, installDependencies);
+                });
+            }
         }
 
         public virtual Task InstallAsync(IEnumerable<string> packages)
@@ -185,17 +196,13 @@ namespace nji
         private Task InstallDependencies(object metadata, CancellationToken cancellationToken, bool installDependencies = true)
         {
             if (metadata == null || !installDependencies)
-            {
                 return NoopTask();
-            }
 
             var packageName = string.Empty;
 
             dynamic meta = metadata;
             if (meta.ContainsKey("name"))
-            {
                 packageName = meta.name;
-            }
 
             if (Verbose > 0)
                 Out.WriteLine("Checking dependencies for {0} ...", packageName);
@@ -204,13 +211,13 @@ namespace nji
             {
                 var dependencies = meta.dependencies as IDictionary<string, object>;
                 if (dependencies == null || dependencies.Count == 0)
-                {
                     return NoopTask();
-                }
 
-                Task t = null;
-                foreach (var package in dependencies)
+                return ForEachContinueWith(dependencies, (package, task) =>
                 {
+                    if (task != null && task.IsFaulted)
+                        throw task.Exception.InnerException;
+
                     var version = package.Value as string;
                     var packageToInstall = package.Key;
                     if (version != null)
@@ -223,16 +230,8 @@ namespace nji
                         packageToInstall = string.Concat(packageToInstall, "@", version);
                     }
 
-                    if (t == null)
-                        t = InstallAsync(packageToInstall, cancellationToken, installDependencies);
-                    else
-                        t = t.ContinueWith(t2 =>
-                        {
-                            return InstallAsync(packageToInstall, cancellationToken, installDependencies);
-                        }).Unwrap();
-                }
-
-                if (t != null) return t;
+                    return InstallAsync(packageToInstall, cancellationToken, installDependencies);
+                });
             }
 
             return NoopTask();
@@ -241,9 +240,7 @@ namespace nji
         public virtual Task<object> GetPackageMetadataAsync(string package, CancellationToken cancellationToken)
         {
             if (string.IsNullOrWhiteSpace("package"))
-            {
                 throw new ArgumentNullException("package");
-            }
 
             var split = package.Split(new[] { '@' }, 2);
             var packageName = split[0];
@@ -259,6 +256,9 @@ namespace nji
                 .OpenReadTaskAsync(cancellationToken)
                 .ContinueWith<object>(task =>
                 {
+                    if (task.IsFaulted)
+                        throw task.Exception.InnerException;
+
                     // todo: handle errors
                     var response = httpHelper.HttpWebResponse;
                     if (response.StatusCode == HttpStatusCode.OK)
@@ -299,9 +299,7 @@ namespace nji
                         continue;
                     dynamic metadata = SimpleJson.DeserializeObject(File.ReadAllText(packageJson));
                     if (metadata.ContainsKey("name"))
-                    {
                         modules.Add(metadata.name, metadata);
-                    }
                 }
             }
 
@@ -317,37 +315,31 @@ namespace nji
 
         public virtual Task UpdateAsync(IEnumerable<object> metadata, CancellationToken cancellationToken)
         {
-            Task t = null;
-            foreach (dynamic package in metadata)
+            return ForEachContinueWith(metadata, (package, task) =>
             {
-                if (t == null)
-                {
-                    t = GetPackageMetadataAsync((string)package.name, cancellationToken)
-                        .ContinueWith(t2 =>
-                        {
-                            return InstallAsync((string)package.name, cancellationToken);
-                        }).Unwrap();
-                }
-                else
-                {
-                    t = t.ContinueWith(t2 =>
-                        {
-                            return GetPackageMetadataAsync((string)package.name, cancellationToken);
-                        }).Unwrap()
-                        .ContinueWith(t2 =>
-                        {
-                            return InstallAsync((string)package.name, cancellationToken);
-                        }).Unwrap();
-                }
-            }
+                if (task != null && task.IsFaulted)
+                    throw task.Exception.InnerException;
 
-            return t == null ? NoopTask() : t;
+                string packageName = ((dynamic)package).name;
+                return GetPackageMetadataAsync(packageName, cancellationToken)
+                        .ContinueWith(t2 =>
+                        {
+                            if (t2.IsFaulted)
+                                throw t2.Exception;
+                            return InstallAsync(packageName, cancellationToken);
+                        }).Unwrap();
+            });
         }
 
         public virtual Task UpdateAsync(CancellationToken cancellationToken)
         {
             return GetInstalledPackagesAsync(cancellationToken)
-                .ContinueWith(t => UpdateAsync(t.Result.Values, cancellationToken)).Unwrap();
+                .ContinueWith(t =>
+                {
+                    if (t.IsFaulted)
+                        throw t.Exception.InnerException;
+                    return UpdateAsync(t.Result.Values, cancellationToken);
+                }).Unwrap();
         }
 
         public virtual Task<string> DownloadAsync(string url, string destinationDirectory, string filename, CancellationToken cancellationToken)
@@ -362,6 +354,9 @@ namespace nji
                 .OpenReadTaskAsync(cancellationToken)
                 .ContinueWith<string>(task =>
                 {
+                    if (task.IsFaulted)
+                        throw task.Exception.InnerException;
+
                     // todo: handle errors
                     using (var responseStream = task.Result)
                     {
@@ -446,6 +441,28 @@ namespace nji
             var task = new Task(() => { });
             task.Start();
             return task;
+        }
+
+        private Task ForEachContinueWith<T>(IEnumerable<T> collection, Func<T, Task, Task> oneach)
+        {
+            Task task = null;
+
+            if (collection != null)
+            {
+                foreach (var item in collection)
+                {
+                    if (task == null)
+                    {
+                        task = oneach(item, null);
+                    }
+                    else
+                    {
+                        task = task.ContinueWith(t => oneach(item, t)).Unwrap();
+                    }
+                }
+            }
+
+            return task == null ? NoopTask() : task;
         }
     }
 }
