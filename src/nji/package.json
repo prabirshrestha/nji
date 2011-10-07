@@ -1,0 +1,10 @@
+{
+	"name": "foo",
+	"version": "1.0.0",
+	"dependencies": {
+		"cssom": "0.2.0",
+		"express": "2.4.6",
+		"jade": "0.16.1",
+		"stylus": "0.16.0"
+	}
+}
