@@ -83,7 +83,7 @@ namespace nji
                     .ContinueWith(downloadTask =>
                     {
                         if (downloadTask.IsFaulted)
-                            throw downloadTask.Exception.InnerException;
+                            throw downloadTask.Exception.GetBaseException();
 
                         var downloadFilePath = downloadTask.Result;
                         return Extract(downloadFilePath, destinationDir);
@@ -91,7 +91,7 @@ namespace nji
                     .ContinueWith(extractTask =>
                     {
                         if (extractTask.IsFaulted)
-                            throw extractTask.Exception.InnerException;
+                            throw extractTask.Exception.GetBaseException();
 
                         var packageExtractedDir = Directory.GetDirectories(destinationDir)[0];
                         string packageJson = Path.Combine(packageExtractedDir, "package.json");
@@ -132,7 +132,7 @@ namespace nji
                     .ContinueWith(metadataTask =>
                     {
                         if (metadataTask.IsFaulted)
-                            throw metadataTask.Exception.InnerException;
+                            throw metadataTask.Exception.GetBaseException();
 
                         dynamic metadata = metadataTask.Result;
 
@@ -147,7 +147,7 @@ namespace nji
                                 {
                                     if (Verbose > 0)
                                         Out.WriteLine("Skipping {0}. Already on latest version", package);
-                                    return NoopTask();
+                                    return metadataTask;
                                     // should it check dependencies too?
                                     // return InstallDependencies((object)metadata, cancellationToken, installDependencies);
                                 }
@@ -181,7 +181,7 @@ namespace nji
                 return ForEachContinueWith(packages, (package, task) =>
                 {
                     if (task != null && task.IsFaulted)
-                        throw task.Exception.InnerException;
+                        throw task.Exception.GetBaseException();
 
                     return InstallAsync(package, cancellationToken, installDependencies);
                 });
@@ -216,7 +216,7 @@ namespace nji
                 return ForEachContinueWith(dependencies, (package, task) =>
                 {
                     if (task != null && task.IsFaulted)
-                        throw task.Exception.InnerException;
+                        throw task.Exception.GetBaseException();
 
                     var version = package.Value as string;
                     var packageToInstall = package.Key;
@@ -246,7 +246,8 @@ namespace nji
             var packageName = split[0];
             var packageVersion = split.Length > 1 ? split[1] : "latest";
 
-            string url = string.Format(RegistryUrlBase + "{0}/{1}", packageName, packageVersion);
+            var containsX = packageVersion.Contains('x');
+            string url = string.Format(RegistryUrlBase + "{0}/{1}", packageName, containsX ? string.Empty : packageVersion);
 
             var request = HttpWebRequestFactory(url);
             request.Method = "GET";
@@ -255,27 +256,47 @@ namespace nji
             return httpHelper
                 .OpenReadTaskAsync(cancellationToken)
                 .ContinueWith<object>(task =>
-                {
-                    if (task.IsFaulted)
-                        throw task.Exception.InnerException;
+                                          {
+                                              if (task.IsFaulted)
+                                                  throw task.Exception.GetBaseException();
 
-                    // todo: handle errors
-                    var response = httpHelper.HttpWebResponse;
-                    if (response.StatusCode == HttpStatusCode.OK)
-                    {
-                        var responseStream = task.Result;
-                        var jsonStr = ToString(responseStream);
-                        return SimpleJson.DeserializeObject(jsonStr);
-                    }
-                    else if (response.StatusCode == HttpStatusCode.NotFound)
-                    {
-                        throw new NjiPackageNotFoundException(packageName, packageVersion);
-                    }
-                    else
-                    {
-                        throw new NjiException("Error occurred.");
-                    }
-                });
+                                              // todo: handle errors
+                                              var response = httpHelper.HttpWebResponse;
+                                              if (response.StatusCode == HttpStatusCode.OK)
+                                              {
+                                                  var responseStream = task.Result;
+                                                  var jsonStr = ToString(responseStream);
+                                                  return SimpleJson.DeserializeObject(jsonStr);
+                                              }
+                                              else if (response.StatusCode == HttpStatusCode.NotFound)
+                                              {
+                                                  throw new NjiPackageNotFoundException(packageName, packageVersion);
+                                              }
+                                              else
+                                              {
+                                                  throw new NjiException("Error occurred.");
+                                              }
+                                          })
+                .ContinueWith(task =>
+                                          {
+                                              if (task.IsFaulted)
+                                                  throw task.Exception.GetBaseException();
+                                              if (!containsX)
+                                                  return task;
+
+                                              dynamic json = task.Result;
+
+                                              string matched = GetBestVersion(json.versions.Keys, packageVersion);
+                                              if (string.IsNullOrEmpty(matched))
+                                              {
+                                                  // get the @latest if can't find the best match
+                                                  return GetPackageMetadataAsync(packageName, cancellationToken);
+                                              }
+                                              else
+                                              {
+                                                  return GetPackageMetadataAsync(packageName + "@" + matched, cancellationToken);
+                                              }
+                                          }).Unwrap();
         }
 
         public virtual Task<object> GetPackageMetadataAsync(string package)
@@ -318,7 +339,7 @@ namespace nji
             return ForEachContinueWith(metadata, (package, task) =>
             {
                 if (task != null && task.IsFaulted)
-                    throw task.Exception.InnerException;
+                    throw task.Exception.GetBaseException();
 
                 string packageName = ((dynamic)package).name;
                 return GetPackageMetadataAsync(packageName, cancellationToken)
@@ -337,7 +358,7 @@ namespace nji
                 .ContinueWith(t =>
                 {
                     if (t.IsFaulted)
-                        throw t.Exception.InnerException;
+                        throw t.Exception.GetBaseException();
                     return UpdateAsync(t.Result.Values, cancellationToken);
                 }).Unwrap();
         }
@@ -355,7 +376,7 @@ namespace nji
                 .ContinueWith<string>(task =>
                 {
                     if (task.IsFaulted)
-                        throw task.Exception.InnerException;
+                        throw task.Exception.GetBaseException();
 
                     // todo: handle errors
                     using (var responseStream = task.Result)
@@ -462,7 +483,40 @@ namespace nji
                 }
             }
 
-            return task == null ? NoopTask() : task;
+            return task ?? NoopTask();
+        }
+
+        public virtual string GetBestVersion(IEnumerable<string> versions, string versionPattern)
+        {
+            // assumed IEnumerable<string> versions is already sorted in ascending order.
+
+            var splitVersion = versionPattern.Split(new[] { '.' }, 4);
+            var major = splitVersion.Length > 0 ? splitVersion[0] : "x";
+            var minor = splitVersion.Length > 1 ? splitVersion[1] : "x";
+            var patch = splitVersion.Length > 2 ? splitVersion[2] : "x";
+
+            var possibleVersions = versions.Where(version =>
+                                                      {
+                                                          var vsplit = version.Split(new[] { '.' }, 4);
+                                                          var vmajor = vsplit.Length > 0 ? vsplit[0] : "x";
+                                                          var vminor = vsplit.Length > 1 ? vsplit[1] : "x";
+                                                          var vpatch = vsplit.Length > 2 ? vsplit[2] : "x";
+
+                                                          if (major == "x" || major == vmajor || vmajor == "x")
+                                                          {
+                                                              if (minor == "x" || minor == vminor || vminor == "x")
+                                                              {
+                                                                  if (patch == "x" || patch == vpatch || vpatch == "x")
+                                                                  {
+                                                                      return true;
+                                                                  }
+                                                              }
+                                                          }
+
+                                                          return false;
+                                                      }).ToList();
+
+            return possibleVersions.Count == 0 ? null : possibleVersions[possibleVersions.Count - 1];
         }
     }
 }
