@@ -234,11 +234,12 @@ namespace nji
             return NoopTask();
         }
 
-        // smarx: I apologize for specificVersion. I added it in the spirit of (and in replacement of) containsX, but it feels wrong.
-        //        I think we really have two different methods here (one for finding the right version, and one for proceeding with it),
-        //        but not sure I'm following the structure of the code properly. I leave the decision in more capable hands. For now, this
-        //        appears to work.
-        public virtual Task<object> GetPackageMetadataAsync(string package, CancellationToken cancellationToken, bool specificVersion = false)
+        private bool IsSpecificVersion(string version)
+        {
+            return Regex.IsMatch(version, @"^[\d.a-zA-Z]+$");
+        }
+
+        public virtual Task<object> GetPackageMetadataAsync(string package, CancellationToken cancellationToken)
         {
             if (string.IsNullOrWhiteSpace("package"))
                 throw new ArgumentNullException("package");
@@ -246,6 +247,8 @@ namespace nji
             var split = package.Split(new[] { '@' }, 2);
             var packageName = split[0];
             var packageVersion = split.Length > 1 ? split[1] : "latest";
+
+            bool specificVersion = IsSpecificVersion(packageVersion);
 
             string url = RegistryUrlBase + packageName;
             if (specificVersion) url += "/" + packageVersion;
@@ -291,11 +294,11 @@ namespace nji
                                               {
                                                   Out.WriteLine("Not smart enough to understand version '{0}', so using 'latest' instead for package '{1}'.", packageVersion, packageName);
                                                   // get the @latest if can't find the best match
-                                                  return GetPackageMetadataAsync(packageName, cancellationToken, true);
+                                                  return GetPackageMetadataAsync(packageName, cancellationToken);
                                               }
                                               else
                                               {
-                                                  return GetPackageMetadataAsync(packageName + "@" + matched, cancellationToken, true);
+                                                  return GetPackageMetadataAsync(packageName + "@" + matched, cancellationToken);
                                               }
                                           }).Unwrap();
         }
