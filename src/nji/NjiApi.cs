@@ -137,7 +137,9 @@ namespace nji
                         dynamic metadata = metadataTask.Result;
 
                         // don't download if package is already the latest version.
-                        string packageJson = Path.Combine(WorkingDirectory, "node_modules", package, "package.json");
+                        string packageJson = Path.Combine(WorkingDirectory, "node_modules",
+                            package.Split(new [] { '@' }, 2)[0], // drop everything after the @ sign, since modules get installed to directories without a version string
+                            "package.json");
                         if (File.Exists(Path.Combine(packageJson)))
                         {
                             dynamic localMetadata = SimpleJson.DeserializeObject(File.ReadAllText(packageJson));
@@ -222,11 +224,6 @@ namespace nji
                     var packageToInstall = package.Key;
                     if (version != null)
                     {
-                        if (!Regex.Match(version, @"^[\.\da-zA-Z]*$").Success)
-                        {
-                            Out.WriteLine("Not smart enough to understand version '{0}', so using 'latest' instead for package '{1}'.", version, packageName);
-                            version = "latest";
-                        }
                         packageToInstall = string.Concat(packageToInstall, "@", version);
                     }
 
@@ -237,7 +234,11 @@ namespace nji
             return NoopTask();
         }
 
-        public virtual Task<object> GetPackageMetadataAsync(string package, CancellationToken cancellationToken)
+        // smarx: I apologize for specificVersion. I added it in the spirit of (and in replacement of) containsX, but it feels wrong.
+        //        I think we really have two different methods here (one for finding the right version, and one for proceeding with it),
+        //        but not sure I'm following the structure of the code properly. I leave the decision in more capable hands. For now, this
+        //        appears to work.
+        public virtual Task<object> GetPackageMetadataAsync(string package, CancellationToken cancellationToken, bool specificVersion = false)
         {
             if (string.IsNullOrWhiteSpace("package"))
                 throw new ArgumentNullException("package");
@@ -246,8 +247,8 @@ namespace nji
             var packageName = split[0];
             var packageVersion = split.Length > 1 ? split[1] : "latest";
 
-            var containsX = packageVersion.Contains('x');
-            string url = string.Format(RegistryUrlBase + "{0}/{1}", packageName, containsX ? string.Empty : packageVersion);
+            string url = RegistryUrlBase + packageName;
+            if (specificVersion) url += "/" + packageVersion;
 
             var request = HttpWebRequestFactory(url);
             request.Method = "GET";
@@ -281,20 +282,20 @@ namespace nji
                                           {
                                               if (task.IsFaulted)
                                                   throw task.Exception.GetBaseException();
-                                              if (!containsX)
-                                                  return task;
+                                              if (specificVersion) return task;
 
                                               dynamic json = task.Result;
 
                                               string matched = GetBestVersion(json.versions.Keys, packageVersion);
                                               if (string.IsNullOrEmpty(matched))
                                               {
+                                                  Out.WriteLine("Not smart enough to understand version '{0}', so using 'latest' instead for package '{1}'.", packageVersion, packageName);
                                                   // get the @latest if can't find the best match
-                                                  return GetPackageMetadataAsync(packageName, cancellationToken);
+                                                  return GetPackageMetadataAsync(packageName, cancellationToken, true);
                                               }
                                               else
                                               {
-                                                  return GetPackageMetadataAsync(packageName + "@" + matched, cancellationToken);
+                                                  return GetPackageMetadataAsync(packageName + "@" + matched, cancellationToken, true);
                                               }
                                           }).Unwrap();
         }
@@ -478,7 +479,8 @@ namespace nji
                     }
                     else
                     {
-                        task = task.ContinueWith(t => oneach(item, t)).Unwrap();
+                        var item_captured = item;
+                        task = task.ContinueWith(t => oneach(item_captured, t)).Unwrap();
                     }
                 }
             }
@@ -488,35 +490,35 @@ namespace nji
 
         public virtual string GetBestVersion(IEnumerable<string> versions, string versionPattern)
         {
-            // assumed IEnumerable<string> versions is already sorted in ascending order.
-
-            var splitVersion = versionPattern.Split(new[] { '.' }, 4);
-            var major = splitVersion.Length > 0 ? splitVersion[0] : "x";
-            var minor = splitVersion.Length > 1 ? splitVersion[1] : "x";
-            var patch = splitVersion.Length > 2 ? splitVersion[2] : "x";
-
-            var possibleVersions = versions.Where(version =>
-                                                      {
-                                                          var vsplit = version.Split(new[] { '.' }, 4);
-                                                          var vmajor = vsplit.Length > 0 ? vsplit[0] : "x";
-                                                          var vminor = vsplit.Length > 1 ? vsplit[1] : "x";
-                                                          var vpatch = vsplit.Length > 2 ? vsplit[2] : "x";
-
-                                                          if (major == "x" || major == vmajor || vmajor == "x")
-                                                          {
-                                                              if (minor == "x" || minor == vminor || vminor == "x")
-                                                              {
-                                                                  if (patch == "x" || patch == vpatch || vpatch == "x")
-                                                                  {
-                                                                      return true;
-                                                                  }
-                                                              }
-                                                          }
-
-                                                          return false;
-                                                      }).ToList();
-
-            return possibleVersions.Count == 0 ? null : possibleVersions[possibleVersions.Count - 1];
+            if (string.IsNullOrEmpty(versionPattern) || versionPattern == "latest") return versionPattern;
+            var constraints = new List<Constraint>();
+            var m = Regex.Match(versionPattern, @"^([.\da-zA-Z]*)\.(\d)\.x$"); // match things like "1.7.x"
+            if (m.Success)
+            {
+                int n = int.Parse(m.Groups[2].Value);
+                versionPattern = string.Format(">= {0}.{1} < {0}.{2}", m.Groups[1].Value, n, n + 1); // rewrite "1.7.x" to ">= 1.7 < 1.8"
+            }
+            foreach (Match match in Regex.Matches(versionPattern, @"([<>=]+)\s*(\S*)"))
+            {
+                constraints.Add(new Constraint(match.Groups[1].Value, match.Groups[2].Value)); // e.g. ">=" "1.7"
+            }
+            if (constraints.Count == 0)
+            {
+                if (Regex.IsMatch(versionPattern, @"^[\.\da-zA-Z]*$")) // handle the case of just an exact version string
+                {
+                    return versionPattern;
+                }
+                else // give up
+                {
+                    return null;
+                }
+            }
+            string best = null;
+            foreach (var ver in versions) // versions appear to be in ascending order
+            {
+                if (constraints.All(c => c.SatisfiedBy(ver))) best = ver; // track the newest version that satisfies all constraints
+            }
+            return best;
         }
     }
 }
