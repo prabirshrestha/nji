@@ -236,7 +236,19 @@ namespace nji
 
         private bool IsSpecificVersion(string version)
         {
-            return Regex.IsMatch(version, @"^[\d.a-zA-Z]+$");
+            // Based on http://npmjs.org/doc/semver.html:
+            // "A version is the following things, in this order:
+            //  * a number (Major)
+            //  * a period
+            //  * a number (minor)
+            //  * a period
+            //  * a number (patch)
+            //  * OPTIONAL: a hyphen, followed by a number (build)
+            //  * OPTIONAL: a collection of pretty much any non-whitespace characters (tag)
+            //  A leading "=" or "v" character is stripped off and ignored."
+            // Also supporting the specific string "latest"
+
+            return Regex.IsMatch(version, @"^[=v]?\d+\.\d+\.\d+\S*|latest$");
         }
 
         public virtual Task<object> GetPackageMetadataAsync(string package, CancellationToken cancellationToken)
