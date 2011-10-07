@@ -154,14 +154,44 @@
             return destPath;
         }
 
-        private static IDictionary<string, object> GetMetaDataForPkg(string pkg, string version)
+        private static string ChooseVersion(string pkg, string version)
         {
-            version = version ?? "latest";
-            if (!Regex.Match(version, @"^[\.\da-zA-Z]*$").Success)
+            if (string.IsNullOrEmpty(version) || version == "latest") return version;
+            var constraints = new List<Constraint>();
+            var m = Regex.Match(version, @"^([.\da-zA-Z]*)\.(\d)\.x$"); // match things like "1.7.x"
+            if (m.Success)
             {
-                Console.WriteLine("Not smart enough to understand version '{0}', so using 'latest' instead for package '{1}'.", version, pkg);
-                version = "latest";
+                int n = int.Parse(m.Groups[2].Value);
+                version = string.Format(">= {0}.{1} < {0}.{2}", m.Groups[1].Value, n, n + 1); // rewrite "1.7.x" to ">= 1.7 < 1.8"
             }
+            foreach (Match match in Regex.Matches(version, @"([<>=]+)\s*(\S*)"))
+            {
+                constraints.Add(new Constraint(match.Groups[1].Value, match.Groups[2].Value)); // e.g. ">=" "1.7"
+            }
+            if (constraints.Count == 0)
+            {
+                if (Regex.IsMatch(version, @"^[\.\da-zA-Z]*$")) // handle the case of just an exact version string
+                {
+                    return version;
+                }
+                else // give up
+                {
+                    Console.WriteLine("Not smart enough to understand version '{0}', so using 'latest' instead for package '{1}'.", version, pkg);
+                    return "latest";
+                }
+            }
+            var dic = (IDictionary<string, object>)SimpleJson.DeserializeObject(new WebClient().DownloadString("http://registry.npmjs.org/" + pkg));
+            string best = null;
+            foreach (var ver in (IDictionary<string, object>)dic["versions"]) // versions appear to be in ascending order
+            {
+                if (constraints.All(c => c.SatisfiedBy(ver.Key))) best = ver.Key; // track the newest version that satisfies all constraints
+            }
+            return best;
+        }
+
+        private static IDictionary<string, object> GetMetaDataForPkg(string pkg, string versionSpec)
+        {
+            string version = ChooseVersion(pkg, versionSpec);
             var url = string.Format("http://registry.npmjs.org/{0}/{1}", pkg, version);
             string response = null;
             try
