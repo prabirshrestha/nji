@@ -738,6 +738,9 @@ namespace Ionic
                             case TarEntryType.Directory:
                                 if (!Directory.Exists(name))
                                 {
+                                    if (!string.IsNullOrEmpty(destination))
+                                        name = Path.Combine(destination, name);
+
                                     Directory.CreateDirectory(name);
                                     // cannot set the time on the directory now, or it will be updated
                                     // by future file writes.  Defer until after all file writes are done.
