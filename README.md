@@ -1,9 +1,9 @@
 # nji - Node Js (Package) Installer
 
-This is a .net version (C#) port of https://github.com/japj/ryppi
+Nji is a package manager for NodeJs written in .NET (C#) which originally started as a port of https://github.com/japj/ryppi
 
 Main differences to npm: (hopefully will fix these soon)
-No version comparison, or compatibility check, only version matching to latest.
+Support for partial version comparisions.
 Module dependencies are all installed in to the root modules directory, in order to avoid package redundancy.
 
 # Usage
@@ -12,7 +12,7 @@ Make sure to add nji.exe directory in the PATH environment variable.
 
 ## Installing Packages
 
-    nji install <pkg> [<pkg>]
+    nji install [<pkg>]
 
 Example:
 
@@ -24,11 +24,11 @@ Example:
 
 ## Installing Dependencies from package.json file
 
-    nji deps
+    nji install
 
 # Requirements
 
-* .NET 3.5 Framework
+* .NET 4.0 Client Framework
 
 # Nuget
 
