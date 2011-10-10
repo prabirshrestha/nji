@@ -448,7 +448,7 @@ namespace nji
 
         public virtual string Version
         {
-            get { return "0.2.0.0"; }
+            get { return "0.3.0.0"; }
         }
 
         private static void CleanDir(string dir)
