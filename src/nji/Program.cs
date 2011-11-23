@@ -57,7 +57,7 @@
         private static void Usage()
         {
             Console.WriteLine(@"Usage:
- nji install [<pkg>] - Install package(s), and it's/there dependencies
+ nji install [<pkg>] - Install package(s), and its/their dependencies
  nji update          - Checks for different version of packages in online repository, and updates as needed
 
 Example:
