@@ -4,6 +4,7 @@
     using System.IO;
     using System.Linq;
     using System.Threading;
+    using System.Net;
 
     class Program
     {
@@ -45,6 +46,16 @@
                 {
                     throw;
                 }
+            }
+            catch (NjiPackageNotFoundException ex)
+            {
+                Console.WriteLine(ex.Message);
+                Environment.Exit(1);
+            }
+            catch (NjiException ex)
+            {
+                Console.WriteLine(ex.Message);
+                Environment.Exit(1);
             }
             finally
             {
