@@ -46,6 +46,16 @@
                     throw;
                 }
             }
+            catch (NjiPackageNotFoundException ex)
+            {
+                Console.WriteLine(ex.Message);
+                Environment.Exit(1);
+            }
+            catch (NjiException ex)
+            {
+                Console.WriteLine(ex.Message);
+                Environment.Exit(1);
+            }
             finally
             {
                 cst.Dispose();

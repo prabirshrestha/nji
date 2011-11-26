@@ -138,7 +138,7 @@ namespace nji
 
                         // don't download if package is already the latest version.
                         string packageJson = Path.Combine(WorkingDirectory, "node_modules",
-                            package.Split(new [] { '@' }, 2)[0], // drop everything after the @ sign, since modules get installed to directories without a version string
+                            package.Split(new[] { '@' }, 2)[0], // drop everything after the @ sign, since modules get installed to directories without a version string
                             "package.json");
                         if (File.Exists(Path.Combine(packageJson)))
                         {
@@ -274,8 +274,12 @@ namespace nji
                 .ContinueWith<object>(task =>
                                           {
                                               if (task.IsFaulted)
-                                                  throw task.Exception.GetBaseException();
-
+                                              {
+                                                  var ex = task.Exception.GetBaseException();
+                                                  var webException = ex as WebExceptionWrapper;
+                                                  if (webException == null || httpHelper.HttpWebResponse == null)
+                                                      throw ex;
+                                              }
                                               // todo: handle errors
                                               var response = httpHelper.HttpWebResponse;
                                               if (response.StatusCode == HttpStatusCode.OK)
