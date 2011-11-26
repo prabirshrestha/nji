@@ -21,9 +21,9 @@ using System.Threading;
 #if FLUENTHTTP_CORE_TPL
 using System.Threading.Tasks;
 #endif
+using nji;
 
-
-namespace FluentHttp
+namespace nji
 {
     /// <summary>
     /// Represents the http web request wrapper.

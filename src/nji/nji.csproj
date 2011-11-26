@@ -44,8 +44,8 @@
   </ItemGroup>
   <ItemGroup>
     <Compile Include="Constraint.cs" />
-    <Compile Include="NjiPackageNotFoundException.cs" />
     <Compile Include="FluentHttp\HttpHelper.cs" />
+    <Compile Include="NjiPackageNotFoundException.cs" />
     <Compile Include="NjiApi.cs" />
     <Compile Include="NjiException.cs" />
     <Compile Include="Program.cs" />
