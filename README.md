@@ -3,7 +3,7 @@
 Nji is a package manager for NodeJs written in .NET (C#) which originally started as a port of https://github.com/japj/ryppi
 
 Main differences to npm: (hopefully will fix these soon)
-Support for partial version comparisions.
+Support for partial version comparisons.
 Module dependencies are all installed in to the root modules directory, in order to avoid package redundancy.
 
 # Usage
