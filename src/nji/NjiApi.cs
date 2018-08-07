@@ -273,9 +273,6 @@ namespace nji
                 .OpenReadTaskAsync(cancellationToken)
                 .ContinueWith<object>(task =>
                                           {
-                                              if (task.IsFaulted)
-                                                  throw task.Exception.GetBaseException();
-
                                               // todo: handle errors
                                               var response = httpHelper.HttpWebResponse;
                                               if (response.StatusCode == HttpStatusCode.OK)
